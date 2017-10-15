@@ -62,9 +62,9 @@
   (let [program (process->program process)
         progress (r/atom 0)
         click-chan (process-runner process)]
-    (go
-      (while true (let [prog (<! (:progress process))]
-                    (reset! progress prog))))
+    (go-loop [prog 0]
+      (reset! progress prog)
+      (recur (<! (:progress process))))
     (fn []
       (let [p @progress
             pct (* p 100)]
@@ -130,7 +130,7 @@
            i 0]
       (if (>= acc timestep)
         (do
-          (go (>! dt-chan timestep))
+          (async/put! dt-chan timestep)
           (swap! game-state #'tick timestep)
           (recur (- acc timestep) (inc i)))
         (reset! accumulator acc)))))
