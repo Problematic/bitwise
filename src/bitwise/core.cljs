@@ -7,6 +7,12 @@
 
 (enable-console-print!)
 
+(defn ms->sec [ms]
+  (/ ms 1000))
+
+(defn sec->ms [sec]
+  (* sec 1000))
+
 (defn default-state [] {:nextpid 1000
                         :programs #{:work}
                         :resources {:data 0}
@@ -14,8 +20,11 @@
                                      :program :work
                                      :progress (chan 10)}]})
 
+(def timestep (/ 1.0 60.0))
+
 (defonce game-state (r/atom (default-state)))
 (defonce last-update (r/atom nil))
+(defonce accumulator (r/atom 0.0))
 (defonce dt-mult nil)
 
 (def program-catalog {:work {:name "work"
@@ -32,7 +41,7 @@
         start-chan (chan)]
     (go
       (while (<! start-chan)
-        (let [t (async/timeout (* duration 1000))
+        (let [t (async/timeout (sec->ms duration))
               dt-chan (async/tap dt-mult (chan))]
           (loop [elapsed 0
                  dt 0]
@@ -109,24 +118,32 @@
      (with-out-str (pp/pprint @game-state))]]])
 
 (defn tick [state dt]
-  (when (> dt 0.0175) (.log js/console "high dt" dt))
   state)
 
 (defn handle-animation-frame [time]
   (.requestAnimationFrame js/window handle-animation-frame)
   (reset! last-update time))
 
-(defn init []
+(defn handle-game-loop [dt-chan key ref prev-time curr-time]
+  (let [elapsed (ms->sec (- curr-time prev-time))]
+    (loop [acc (+ @accumulator elapsed)
+           i 0]
+      (if (>= acc timestep)
+        (do
+          (go (>! dt-chan timestep))
+          (swap! game-state #'tick timestep)
+          (recur (- acc timestep) (inc i)))
+        (reset! accumulator acc)))))
+
+(defn init [time]
   (let [dt-chan (chan (async/sliding-buffer 1))]
     (set! dt-mult (async/mult dt-chan))
-    (add-watch last-update :dt #(when (not (nil? %3))
-                                  (let [dt (/ (- %4 %3) 1000)]
-                                    (swap! game-state #'tick (/ (- %4 %3) 1000))
-                                    (go (>! dt-chan dt))))))
+    (reset! last-update time)
+    (add-watch last-update :dt (partial #'handle-game-loop dt-chan)))
   (.requestAnimationFrame js/window handle-animation-frame)
   (r/render [app] (. js/document (getElementById "app"))))
 
-(defonce start (init))
+(defonce start (.requestAnimationFrame js/window init))
 
 (defn on-js-reload []
   (swap! game-state update-in [:__figwheel_counter] inc)
