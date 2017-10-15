@@ -126,11 +126,11 @@
 
 (defn handle-game-loop [dt-chan key ref prev-time curr-time]
   (let [elapsed (ms->sec (- curr-time prev-time))]
-    (loop [acc (+ @accumulator elapsed)
-           i 0]
+    (go-loop [acc (+ @accumulator elapsed)
+              i 0]
       (if (>= acc timestep)
         (do
-          (async/put! dt-chan timestep)
+          (>! dt-chan timestep)
           (swap! game-state #'tick timestep)
           (recur (- acc timestep) (inc i)))
         (reset! accumulator acc)))))
