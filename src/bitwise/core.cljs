@@ -54,6 +54,21 @@
                     (recur (+ elapsed dt) next-dt)))))))))
     start-chan))
 
+(def process-grid-styles {:display "grid"
+                          :grid-template-columns "75px 1fr 1fr"
+                          :grid-template-rows "auto"
+                          :align-items "center"})
+
+(def action-button-styles {:width 100
+                           :height 25
+                           :border "1px solid gray"
+                           :display "flex"
+                           :align-items "center"
+                           :justify-content "center"
+                           :user-select "none"
+                           :text-decoration "none"
+                           :color "black"})
+
 (defn process-info [process]
   (let [program (process->program process)
         progress (r/atom 0)
@@ -64,25 +79,29 @@
     (fn []
       (let [p @progress
             pct (* p 100)]
-        [:tr
-         [:td (:pid process)]
-         [:td (:name program)]
-         [:td
+        [:div {:style (merge
+                       process-grid-styles
+                       {})}
+         [:div (:pid process)]
+         [:div (:name program)]
+         [:div
           [:a {:on-click #(do (.preventDefault %) (async/offer! click-chan :click))
                :role "button"
                :href "#"
-               :style {:width 100
-                       :height 25
-                       :border "1px solid gray"
-                       :display "flex"
-                       :align-items "center"
-                       :justify-content "center"
-                       :background (str "linear-gradient(to right, lightgray " pct "%, white " pct "%)")
-                       :user-select "none"
-                       :text-decoration "none"
-                       :color "black"}} "Execute"]]
-         [:td
-          [:a {}]]]))))
+               :style (merge
+                       action-button-styles
+                       {:background (str "linear-gradient(to right, lightgray " pct "%, white " pct "%)")})} "Execute"]]]))))
+
+(defn process-list [processes]
+  [:div
+   [:div {:style (merge
+                  process-grid-styles
+                  {})}
+    [:div>b "PID"]
+    [:div>b "PROGRAM"]
+    [:div]]
+   (for [process @processes]
+     ^{:key (:pid process)} [process-info process])])
 
 (defn app []
   [:div
@@ -91,16 +110,7 @@
     [:div {:style {:flex-grow "2"}}
      [:div
       (str "data: " (util/display-as-binary (get-in @game-state [:resources :data])))]
-     [:table
-      [:tbody
-       [:tr
-        [:td>b "PID"]
-        [:td {:style {:width 200}}
-         [:b "PROGRAM"]]
-        [:td]
-        [:td]]
-       (for [process (:processes @game-state)]
-         ^{:key (:pid process)} [process-info process])]]]
+     [process-list (r/cursor game-state [:processes])]]
     [:div {:style {:flex-grow "1"}}
      [:h3 "programs"]
      [:ul
