@@ -20,11 +20,7 @@
                                      :program :work
                                      :progress (chan 10)}]})
 
-(def timestep (/ 1.0 60.0))
-
 (defonce game-state (r/atom (default-state)))
-(defonce last-update (r/atom nil))
-(defonce accumulator (r/atom 0.0))
 (defonce dt-mult nil)
 
 (def program-catalog {:work {:name "work"
@@ -120,27 +116,21 @@
 (defn tick [state dt]
   state)
 
-(defn handle-animation-frame [time]
-  (.requestAnimationFrame js/window handle-animation-frame)
-  (reset! last-update time))
-
-(defn handle-game-loop [dt-chan key ref prev-time curr-time]
-  (let [elapsed (ms->sec (- curr-time prev-time))]
-    (go-loop [acc (+ @accumulator elapsed)
-              i 0]
-      (if (>= acc timestep)
-        (do
-          (>! dt-chan timestep)
-          (swap! game-state #'tick timestep)
-          (recur (- acc timestep) (inc i)))
-        (reset! accumulator acc)))))
+(defn handle-animation-frame [timestamp-chan time]
+  (.requestAnimationFrame js/window (partial handle-animation-frame timestamp-chan))
+  (async/offer! timestamp-chan time))
 
 (defn init [time]
-  (let [dt-chan (chan (async/sliding-buffer 1))]
+  (let [dt-chan (chan (async/sliding-buffer 1))
+        timestamp-chan (chan (async/sliding-buffer 1))]
     (set! dt-mult (async/mult dt-chan))
-    (reset! last-update time)
-    (add-watch last-update :dt (partial #'handle-game-loop dt-chan)))
-  (.requestAnimationFrame js/window handle-animation-frame)
+    (go-loop [prev-time (<! timestamp-chan)
+              curr-time (<! timestamp-chan)]
+      (let [dt (ms->sec (- curr-time prev-time))]
+        (>! dt-chan dt)
+        (swap! game-state tick dt))
+      (recur curr-time (<! timestamp-chan)))
+    (.requestAnimationFrame js/window (partial handle-animation-frame timestamp-chan)))
   (r/render [app] (. js/document (getElementById "app"))))
 
 (defonce start (.requestAnimationFrame js/window init))
