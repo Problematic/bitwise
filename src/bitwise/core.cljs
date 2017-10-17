@@ -18,7 +18,8 @@
                         :cpu {:cores 1
                               :speed 1.0}
                         :memory 512
-                        :resources {:data 0}
+                        :resources {:data {:total 0
+                                           :current 0}}
                         :processes []})
 
 (defonce game-state (r/atom (default-state)))
@@ -27,7 +28,10 @@
 (def program-catalog {:work {:name "work"
                              :complexity 1.5
                              :memory 128
-                             :on-complete (fn [state] (update-in state [:resources :data] inc))}})
+                             :on-complete (fn [state] (update-in state [:resources :data] (comp
+                                                                                           (partial into {})
+                                                                                           (partial map (fn [[key val]]
+                                                                                                          [key (inc val)])))))}})
 
 (defn process->program [process]
   ((:program process) program-catalog))
@@ -143,7 +147,7 @@
       [:div {:style {:flex-grow "2"}}
        [:div
         [:div
-         (str "data: " (util/display-as-binary (get-in @game-state [:resources :data])))]
+         (str "data: " (util/display-as-binary (get-in @game-state [:resources :data :current])))]
         [process-list processes]
         (for [idx (range process-slots-available)]
           ^{:key idx} [process-slot])]]
