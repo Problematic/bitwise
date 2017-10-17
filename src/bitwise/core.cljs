@@ -56,7 +56,8 @@
             (cond
               (= :kill (async/poll! runner-chan)) (do
                                                     (>! process-chan 0.0)
-                                                    (async/close! dt-chan))
+                                                    (async/close! dt-chan)
+                                                    (async/close! runner-chan))
               (>= elapsed duration) (do
                                       (>! process-chan 1.0)
                                       (swap! game-state (:on-complete program) process)
@@ -66,8 +67,8 @@
                       (let [[next-dt c] (async/alts! [dt-chan t])]
                         (if (= t c)
                           (recur duration next-dt)
-                          (recur (+ elapsed dt) next-dt))))))))
-      (recur (<! runner-chan)))
+                          (recur (+ elapsed dt) next-dt)))))))
+        (recur (<! runner-chan))))
     runner-chan))
 
 (def process-grid-styles {:display "grid"
