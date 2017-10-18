@@ -36,15 +36,24 @@
 (defn process->program [process]
   ((:program process) program-catalog))
 
-(defn fork-process [state program]
+(defmulti reduce-state (fn [state action] (:type action)))
+
+(defmethod reduce-state :fork-process [state {:keys [program]}]
   (-> state
       (update-in [:processes] conj {:pid (:nextpid state)
                                     :program program
                                     :progress (chan (async/sliding-buffer 1))})
       (update-in [:nextpid] inc)))
 
-(defn kill-process [state pid]
+(defmethod reduce-state :kill-process [state {:keys [pid]}]
   (update-in state [:processes] #(filterv (comp not (partial = pid) :pid) %)))
+
+(defmethod reduce-state :complete-process [state action]
+  (let [on-complete (get-in action [:program :on-complete])]
+    (on-complete state)))
+
+(defn dispatch! [action]
+  (swap! game-state reduce-state action))
 
 (defn process-runner [architecture process]
   (let [program (process->program process)
@@ -64,7 +73,8 @@
                                                     (async/close! runner-chan))
               (>= elapsed duration) (do
                                       (>! process-chan 1.0)
-                                      (swap! game-state (:on-complete program) process)
+                                      (dispatch! {:type :complete-process
+                                                  :program program})
                                       (async/close! dt-chan))
               :else (do
                       (>! process-chan (/ elapsed duration))
@@ -112,7 +122,10 @@
                :style (merge
                        action-button-styles
                        {:background (str "linear-gradient(to right, lightgray " pct "%, white " pct "%)")})} "Execute"]
-          [:a {:on-click #(do (.preventDefault %) (swap! game-state kill-process (:pid process)) (go (>! runner-chan :kill)))
+          [:a {:on-click #(do (.preventDefault %)
+                              (dispatch! {:type :kill-process
+                                          :pid (:pid process)})
+                              (go (>! runner-chan :kill)))
                :role "button"
                :href "#"
                :style (merge
@@ -165,7 +178,8 @@
         (for [[key program] (map #(vector % (% program-catalog)) (:programs @game-state))]
           ^{:key key} [:div {:style {:display "flex"}}
                        [:button {:style {:margin-right 5}
-                                 :on-click #(swap! game-state fork-process key)
+                                 :on-click #(dispatch! {:type :fork-process
+                                                        :program key})
                                  :disabled (= process-slots-available 0)} "<"]
                        [program-info program]])]]]
      [:div
