@@ -15,9 +15,9 @@
 
 (defn default-state [] {:nextpid 1000
                         :programs #{:work}
-                        :cpu {:cores 1
-                              :speed 1.0}
-                        :memory 512
+                        :architecture {:cpu {:cores 1
+                                             :speed 0.5}
+                                       :memory 512}
                         :resources {:data {:total 0
                                            :current 0}}
                         :processes []})
@@ -46,9 +46,9 @@
 (defn kill-process [state pid]
   (update-in state [:processes] #(filterv (comp not (partial = pid) :pid) %)))
 
-(defn process-runner [process]
+(defn process-runner [architecture process]
   (let [program (process->program process)
-        duration (:complexity program)
+        duration (/ (:complexity program) (get-in architecture [:cpu :speed]))
         process-chan (:progress process)
         runner-chan (chan)]
     (go-loop [cmd (<! runner-chan)]
@@ -90,10 +90,10 @@
                            :text-decoration "none"
                            :color "black"})
 
-(defn process-info [process]
+(defn process-info [architecture process]
   (let [program (process->program process)
         progress (r/atom 0)
-        runner-chan (process-runner process)]
+        runner-chan (process-runner architecture process)]
     (go-loop [prog 0]
       (reset! progress prog)
       (recur (<! (:progress process))))
@@ -127,20 +127,28 @@
    [:div "idle"]
    [:div]])
 
-(defn process-list [processes]
-  [:div
-   [:div {:style (merge
-                  process-grid-styles
-                  {})}
-    [:div>b "PID"]
-    [:div>b "PROGRAM"]
-    [:div]]
-   (for [process @processes]
-     ^{:key (:pid process)} [process-info process])])
+(defn process-list [architecture processes]
+  (let [arch @architecture]
+    [:div
+     [:div {:style (merge
+                    process-grid-styles
+                    {})}
+      [:div>b "PID"]
+      [:div>b "PROGRAM"]
+      [:div]]
+     (for [process @processes]
+       ^{:key (:pid process)} [process-info arch process])]))
+
+(defn program-info [program]
+  [:div {}
+   [:div>b (:name program)]
+   [:div {} (str "Complexity: " (:complexity program))]
+   [:div {} (str "Size: " (:memory program) "mb")]])
 
 (defn app []
   (let [processes (r/cursor game-state [:processes])
-        process-slots-available (- (get-in @game-state [:cpu :cores]) (count @processes))]
+        architecture (r/cursor game-state [:architecture])
+        process-slots-available (- (get-in @architecture [:cpu :cores]) (count @processes))]
     [:div
      [:div {:style {:display "flex"
                     :font-family "monospace"}}
@@ -148,16 +156,18 @@
        [:div
         [:div
          (str "data: " (util/display-as-binary (get-in @game-state [:resources :data :current])))]
-        [process-list processes]
+        [process-list architecture processes]
         (for [idx (range process-slots-available)]
           ^{:key idx} [process-slot])]]
       [:div {:style {:flex-grow "1"}}
        [:h3 "programs"]
        [:div
         (for [[key program] (map #(vector % (% program-catalog)) (:programs @game-state))]
-          ^{:key key} [:div
-                       (when (> process-slots-available 0) [:button {:on-click #(swap! game-state fork-process key)} "<"])
-                       (:name program)])]]]
+          ^{:key key} [:div {:style {:display "flex"}}
+                       [:button {:style {:margin-right 5}
+                                 :on-click #(swap! game-state fork-process key)
+                                 :disabled (= process-slots-available 0)} "<"]
+                       [program-info program]])]]]
      [:div
       [:h3 {:style {:margin-bottom 8}} "debug"]
       [:pre {:style {:background-color "lightgray"
