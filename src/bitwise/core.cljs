@@ -3,7 +3,8 @@
   (:require [reagent.core :as r]
             [cljs.core.async :as async :refer [<! >! chan]]
             [bitwise.util :as util]
-            [clojure.pprint :as pp]))
+            [clojure.pprint :as pp]
+            [bitwise.reducers :as reducers]))
 
 (enable-console-print!)
 
@@ -36,24 +37,8 @@
 (defn process->program [process]
   ((:program process) program-catalog))
 
-(defmulti reduce-state (fn [state action] (:type action)))
-
-(defmethod reduce-state :fork-process [state {:keys [program]}]
-  (-> state
-      (update-in [:processes] conj {:pid (:nextpid state)
-                                    :program program
-                                    :progress (chan (async/sliding-buffer 1))})
-      (update-in [:nextpid] inc)))
-
-(defmethod reduce-state :kill-process [state {:keys [pid]}]
-  (update-in state [:processes] #(filterv (comp not (partial = pid) :pid) %)))
-
-(defmethod reduce-state :complete-process [state action]
-  (let [on-complete (get-in action [:program :on-complete])]
-    (on-complete state)))
-
 (defn dispatch! [action]
-  (swap! game-state reduce-state action))
+  (swap! game-state reducers/reduce-state action))
 
 (defn process-runner [architecture process]
   (let [program (process->program process)
