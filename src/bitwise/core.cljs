@@ -25,6 +25,8 @@
 
 (defonce game-state (r/atom (default-state)))
 (defonce dt-mult nil)
+(defonce event-chan (chan))
+(defonce event-pub (async/pub event-chan :type))
 
 (def program-catalog {:work {:name "work"
                              :complexity 1.5
@@ -38,7 +40,12 @@
   ((:program process) program-catalog))
 
 (defn dispatch! [action]
-  (swap! game-state reducers/reduce-state action))
+  (cond
+    (fn? action) (dispatch! (action))
+    (sequential? action) (doall (map dispatch! action))
+    :else (do
+            (swap! game-state reducers/reduce-state action)
+            (async/offer! event-chan action))))
 
 (defn process-runner [architecture process]
   (let [program (process->program process)
