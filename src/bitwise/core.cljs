@@ -31,10 +31,9 @@
 (def program-catalog {:work {:name "work"
                              :complexity 1.5
                              :memory 128
-                             :on-complete (fn [state] (update-in state [:resources :data] (comp
-                                                                                           (partial into {})
-                                                                                           (partial map (fn [[key val]]
-                                                                                                          [key (inc val)])))))}})
+                             :on-complete {:type :increase-resource
+                                           :resource :data
+                                           :amount 1}}})
 
 (defn process->program [process]
   ((:program process) program-catalog))
@@ -65,8 +64,9 @@
                                                     (async/close! runner-chan))
               (>= elapsed duration) (do
                                       (>! process-chan 1.0)
-                                      (dispatch! {:type :complete-process
-                                                  :program program})
+                                      (dispatch! [{:type :complete-process
+                                                   :program (:program process)}
+                                                  (:on-complete program)])
                                       (async/close! dt-chan))
               :else (do
                       (>! process-chan (/ elapsed duration))
