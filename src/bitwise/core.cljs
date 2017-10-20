@@ -92,13 +92,9 @@
                                                          :pid (:pid process)})}
          process
          "Execute"]
-        [:a {:on-click #(dispatch! {:type :kill-process
-                                    :pid (:pid process)})
-             :role "button"
-             :href "#"
-             :style (merge
-                     action-button-styles
-                     {:margin-left 10})}
+        [action-button {:style {:margin-left 10}
+                        :on-click #(dispatch! {:type :kill-process
+                                               :pid (:pid process)})}
          "Kill"]]])))
 
 (defn process-slot []
