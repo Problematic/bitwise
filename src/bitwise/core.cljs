@@ -3,7 +3,8 @@
   (:require [reagent.core :as r]
             [cljs.core.async :as async :refer [<! >! chan]]
             [bitwise.util :as util]
-            [clojure.pprint :as pp]))
+            [clojure.pprint :as pp]
+            [bitwise.reducers :as reducers]))
 
 (enable-console-print!)
 
@@ -24,27 +25,26 @@
 
 (defonce game-state (r/atom (default-state)))
 (defonce dt-mult nil)
+(defonce event-chan (chan))
+(defonce event-pub (async/pub event-chan :type))
 
 (def program-catalog {:work {:name "work"
                              :complexity 1.5
                              :memory 128
-                             :on-complete (fn [state] (update-in state [:resources :data] (comp
-                                                                                           (partial into {})
-                                                                                           (partial map (fn [[key val]]
-                                                                                                          [key (inc val)])))))}})
+                             :on-complete {:type :increase-resource
+                                           :resource :data
+                                           :amount 1}}})
 
 (defn process->program [process]
   ((:program process) program-catalog))
 
-(defn fork-process [state program]
-  (-> state
-      (update-in [:processes] conj {:pid (:nextpid state)
-                                    :program program
-                                    :progress (chan (async/sliding-buffer 1))})
-      (update-in [:nextpid] inc)))
-
-(defn kill-process [state pid]
-  (update-in state [:processes] #(filterv (comp not (partial = pid) :pid) %)))
+(defn dispatch! [action]
+  (cond
+    (fn? action) (dispatch! (action))
+    (sequential? action) (doall (map dispatch! action))
+    :else (do
+            (swap! game-state reducers/reduce-state action)
+            (async/offer! event-chan action))))
 
 (defn process-runner [architecture process]
   (let [program (process->program process)
@@ -64,7 +64,9 @@
                                                     (async/close! runner-chan))
               (>= elapsed duration) (do
                                       (>! process-chan 1.0)
-                                      (swap! game-state (:on-complete program) process)
+                                      (dispatch! [{:type :complete-process
+                                                   :program (:program process)}
+                                                  (:on-complete program)])
                                       (async/close! dt-chan))
               :else (do
                       (>! process-chan (/ elapsed duration))
@@ -112,7 +114,10 @@
                :style (merge
                        action-button-styles
                        {:background (str "linear-gradient(to right, lightgray " pct "%, white " pct "%)")})} "Execute"]
-          [:a {:on-click #(do (.preventDefault %) (swap! game-state kill-process (:pid process)) (go (>! runner-chan :kill)))
+          [:a {:on-click #(do (.preventDefault %)
+                              (dispatch! {:type :kill-process
+                                          :pid (:pid process)})
+                              (go (>! runner-chan :kill)))
                :role "button"
                :href "#"
                :style (merge
@@ -165,7 +170,8 @@
         (for [[key program] (map #(vector % (% program-catalog)) (:programs @game-state))]
           ^{:key key} [:div {:style {:display "flex"}}
                        [:button {:style {:margin-right 5}
-                                 :on-click #(swap! game-state fork-process key)
+                                 :on-click #(dispatch! {:type :fork-process
+                                                        :program key})
                                  :disabled (= process-slots-available 0)} "<"]
                        [program-info program]])]]]
      [:div
