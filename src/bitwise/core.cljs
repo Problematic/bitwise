@@ -1,18 +1,19 @@
 (ns bitwise.core
-  (:require-macros [cljs.core.async.macros :refer [go go-loop]])
+  (:require-macros [cljs.core.async.macros :refer [go go-loop alt!]])
   (:require [reagent.core :as r]
             [cljs.core.async :as async :refer [<! >! chan]]
-            [bitwise.util :as util]
+            [bitwise.util :as util :refer [ms->sec sec->ms timestamp]]
             [clojure.pprint :as pp]
-            [bitwise.reducers :as reducers]))
+            [bitwise.reducers :as reducers]
+            [alandipert.storage-atom :refer [local-storage]]
+            [bitwise.program-catalog :refer [program-catalog]]
+            [bitwise.process :as process]))
 
 (enable-console-print!)
 
-(defn ms->sec [ms]
-  (/ ms 1000))
-
-(defn sec->ms [sec]
-  (* sec 1000))
+(reset! alandipert.storage-atom/storage-delay 100)
+(swap! alandipert.storage-atom/transit-read-handlers into process/read-handler)
+(swap! alandipert.storage-atom/transit-write-handlers into process/write-handler)
 
 (defn default-state [] {:nextpid 1000
                         :programs #{:work}
@@ -21,19 +22,14 @@
                                        :memory 512}
                         :resources {:data {:total 0
                                            :current 0}}
-                        :processes []})
+                        :processes (sorted-map)})
 
-(defonce game-state (r/atom (default-state)))
+(defonce game-state (local-storage
+                     (r/atom (default-state))
+                     :game-state))
 (defonce dt-mult nil)
 (defonce event-chan (chan))
 (defonce event-pub (async/pub event-chan :type))
-
-(def program-catalog {:work {:name "work"
-                             :complexity 1.5
-                             :memory 128
-                             :on-complete {:type :increase-resource
-                                           :resource :data
-                                           :amount 1}}})
 
 (defn process->program [process]
   ((:program process) program-catalog))
@@ -45,37 +41,6 @@
     :else (do
             (swap! game-state reducers/reduce-state action)
             (async/offer! event-chan action))))
-
-(defn process-runner [architecture process]
-  (let [program (process->program process)
-        duration (/ (:complexity program) (get-in architecture [:cpu :speed]))
-        process-chan (:progress process)
-        runner-chan (chan)]
-    (go-loop [cmd (<! runner-chan)]
-      (when (= :execute cmd)
-        (let [t (async/timeout (sec->ms duration))
-              dt-chan (async/tap dt-mult (chan))]
-          (loop [elapsed 0
-                 dt 0]
-            (cond
-              (= :kill (async/poll! runner-chan)) (do
-                                                    (>! process-chan 0.0)
-                                                    (async/close! dt-chan)
-                                                    (async/close! runner-chan))
-              (>= elapsed duration) (do
-                                      (>! process-chan 1.0)
-                                      (dispatch! [{:type :complete-process
-                                                   :program (:program process)}
-                                                  (:on-complete program)])
-                                      (async/close! dt-chan))
-              :else (do
-                      (>! process-chan (/ elapsed duration))
-                      (let [[next-dt c] (async/alts! [dt-chan t])]
-                        (if (= t c)
-                          (recur duration next-dt)
-                          (recur (+ elapsed dt) next-dt)))))))
-        (recur (<! runner-chan))))
-    runner-chan))
 
 (def process-grid-styles {:display "grid"
                           :grid-template-columns "75px 1fr 1fr"
@@ -92,37 +57,49 @@
                            :text-decoration "none"
                            :color "black"})
 
-(defn process-info [architecture process]
-  (let [program (process->program process)
-        progress (r/atom 0)
-        runner-chan (process-runner architecture process)]
-    (go-loop [prog 0]
-      (reset! progress prog)
-      (recur (<! (:progress process))))
-    (fn []
-      (let [p @progress
-            pct (* p 100)]
-        [:div {:style (merge
-                       process-grid-styles
-                       {})}
-         [:div (:pid process)]
-         [:div (:name program)]
-         [:div {:style {:display "flex"}}
-          [:a {:on-click #(do (.preventDefault %) (async/offer! runner-chan :execute))
-               :role "button"
-               :href "#"
-               :style (merge
-                       action-button-styles
-                       {:background (str "linear-gradient(to right, lightgray " pct "%, white " pct "%)")})} "Execute"]
-          [:a {:on-click #(do (.preventDefault %)
-                              (dispatch! {:type :kill-process
-                                          :pid (:pid process)})
-                              (go (>! runner-chan :kill)))
-               :role "button"
-               :href "#"
-               :style (merge
-                       action-button-styles
-                       {:margin-left 10})} "Kill"]]]))))
+(defn action-button [props label]
+  [:a (util/merge-deep {:role "button"
+                        :href "#"
+                        :style action-button-styles}
+                       props
+                       {:on-click #(do (.preventDefault %) ((:on-click props)))})
+   label])
+
+(defn progress-button [props progress label]
+  (let [pct (* progress 100)]
+    [action-button
+     (util/merge-deep {:style {:background (str "linear-gradient(to right, lightgray " pct "%, white " pct "%)")}}
+                      props)
+     label]))
+
+(defn process-progress-button [props process label]
+  (let [progress (r/atom 0.0)]
+    (fn [props process label]
+      (reset! progress (process/progress process))
+      [progress-button props @progress label])))
+
+(defn process-info [process]
+  (fn [process]
+    (let [program (process->program process)
+          pct (* (process/progress process) 100)]
+      [:div {:style (merge
+                     process-grid-styles
+                     {})}
+       [:div (:pid process)]
+       [:div (:name program)]
+       [:div {:style {:display "flex"}}
+        [process-progress-button {:on-click #(dispatch! {:type :execute-process
+                                                         :pid (:pid process)})}
+         process
+         "Execute"]
+        [:a {:on-click #(dispatch! {:type :kill-process
+                                    :pid (:pid process)})
+             :role "button"
+             :href "#"
+             :style (merge
+                     action-button-styles
+                     {:margin-left 10})}
+         "Kill"]]])))
 
 (defn process-slot []
   [:div {:style (merge
@@ -132,17 +109,16 @@
    [:div "idle"]
    [:div]])
 
-(defn process-list [architecture processes]
-  (let [arch @architecture]
-    [:div
-     [:div {:style (merge
-                    process-grid-styles
-                    {})}
-      [:div>b "PID"]
-      [:div>b "PROGRAM"]
-      [:div]]
-     (for [process @processes]
-       ^{:key (:pid process)} [process-info arch process])]))
+(defn process-list [processes]
+  [:div
+   [:div {:style (merge
+                  process-grid-styles
+                  {})}
+    [:div>b "PID"]
+    [:div>b "PROGRAM"]
+    [:div]]
+   (for [[pid process] @processes]
+     ^{:key pid} [process-info process])])
 
 (defn program-info [program]
   [:div {}
@@ -161,7 +137,7 @@
        [:div
         [:div
          (str "data: " (util/display-as-binary (get-in @game-state [:resources :data :current])))]
-        [process-list architecture processes]
+        [process-list processes]
         (for [idx (range process-slots-available)]
           ^{:key idx} [process-slot])]]
       [:div {:style {:flex-grow "1"}}
@@ -181,8 +157,16 @@
                      :padding 10}}
        (with-out-str (pp/pprint @game-state))]]]))
 
-(defn tick [state dt]
-  state)
+(defn tick! [state dt]
+  (dispatch!
+   (map
+    (fn [[pid process]]
+      [(:on-complete (process->program process))
+       {:type :complete-process
+        :pid pid}])
+    (filter
+     (comp process/complete? second)
+     (get-in state [:processes])))))
 
 (defn handle-animation-frame [timestamp-chan time]
   (.requestAnimationFrame js/window (partial handle-animation-frame timestamp-chan))
@@ -196,11 +180,10 @@
               curr-time (<! timestamp-chan)]
       (let [dt (ms->sec (- curr-time prev-time))]
         (>! dt-chan dt)
-        (swap! game-state tick dt))
+        (tick! @game-state dt))
       (recur curr-time (<! timestamp-chan)))
-    (.requestAnimationFrame js/window (partial handle-animation-frame timestamp-chan))))
-
-(r/render [app] (. js/document (getElementById "app")))
+    (.requestAnimationFrame js/window (partial handle-animation-frame timestamp-chan))
+    (r/render [app] (.getElementById js/document "app"))))
 
 (defonce start (.requestAnimationFrame js/window init))
 
