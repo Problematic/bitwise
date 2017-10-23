@@ -22,7 +22,7 @@
   (progress [this]
     (if (running? this)
       (let [elapsed (- (util/timestamp) (:started-at this))]
-        (max (min (/ (util/ms->sec elapsed) (duration this)) 1.0) 0.0))
+        (util/clamp (/ (util/ms->sec elapsed) (duration this))))
       0.0))
   (complete? [this]
     (and (running? this)
