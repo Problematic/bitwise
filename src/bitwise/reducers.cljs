@@ -1,20 +1,26 @@
 (ns bitwise.reducers
-  (:require [cljs.core.async :as async :refer [chan]]))
+  (:require [cljs.core.async :as async :refer [chan]]
+            [bitwise.util :as util]
+            [bitwise.process :as process]))
 
 (defmulti reduce-game-state (fn [state action] (:type action)))
 
 (defmethod reduce-game-state :fork-process [state {:keys [program]}]
   (-> state
-      (update-in [:processes] conj {:pid (:nextpid state)
-                                    :program program
-                                    :progress (chan (async/sliding-buffer 1))})
+      (update-in [:processes] conj [(:nextpid state) (process/Process. (:nextpid state) program nil)])
       (update-in [:nextpid] inc)))
 
 (defmethod reduce-game-state :kill-process [state {:keys [pid]}]
-  (update-in state [:processes] #(filterv (comp not (partial = pid) :pid) %)))
+  (update-in state [:processes] dissoc pid))
 
-(defmethod reduce-game-state :complete-process [state action]
-  state)
+(defmethod reduce-game-state :execute-process [state {:keys [pid]}]
+  (let [process (get-in state [:processes pid])]
+    (if (process/running? process)
+      state
+      (update-in state [:processes pid] process/start))))
+
+(defmethod reduce-game-state :complete-process [state {:keys [pid]}]
+  (update-in state [:processes pid] process/stop))
 
 (defmethod reduce-game-state :increase-resource [state {:keys [resource amount]}]
   (update-in state [:resources resource] (comp
