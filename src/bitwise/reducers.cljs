@@ -17,8 +17,8 @@
   (let [process (get-in state [:processes pid])]
     (if (process/running? process)
       state
-      (let [architecture (get-in state [:architecture])
-            duration (/ (process/complexity process) (get-in architecture [:cpu :speed]))]
+      (let [cpu-speed (get-in state [:architecture :cpu :speed])
+            duration (/ (process/complexity process) cpu-speed)]
         (assoc-in state [:processes pid] (-> process
                                              (process/start)
                                              (assoc-in [:duration] duration)))))))
