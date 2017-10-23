@@ -47,14 +47,16 @@
                           :grid-template-rows "30px"
                           :align-items "center"})
 
-(def action-button-styles {:width 100
+(def action-button-styles {:min-width 100
                            :height 25
                            :border "1px solid gray"
-                           :display "flex"
+                           :display "inline-block"
+                           :padding "3px 20px"
                            :align-items "center"
                            :justify-content "center"
                            :user-select "none"
                            :text-decoration "none"
+                           :margin-right "10px"
                            :color "black"})
 
 (defn action-button [props label]
@@ -87,6 +89,7 @@
                      {})}
        [:div (:pid process)]
        [:div (:name program)]
+       ; TODO: Add an "output column here"
        [:div {:style {:display "flex"}}
         [process-progress-button {:on-click #(dispatch! {:type :execute-process
                                                          :pid (:pid process)})}
@@ -147,7 +150,11 @@
                                  :disabled (= process-slots-available 0)} "<"]
                        [program-info program]])]]]
      [:div
-      [:h3 {:style {:margin-bottom 8}} "debug"]
+      [:h3 {:style {:margin-bottom 8}} "Developer Tools"]
+      [:div 
+        [action-button {:on-click #(swap! game-state assoc-in [:programs] (into #{} (keys program-catalog)))} "Grant All Programs"]
+        [action-button {:on-click #(reset! game-state (default-state))} "Reset Default State"]]
+      [:h4 {:style {:margin-bottom 4}} "Game State:"]
       [:pre {:style {:background-color "lightgray"
                      :margin-top 0
                      :padding 10}}
