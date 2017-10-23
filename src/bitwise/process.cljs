@@ -7,7 +7,9 @@
   (stop [this])
   (running? [this])
   (complete? [this])
-  (progress [this]))
+  (progress [this])
+  (complexity [this])
+  (duration [this]))
 
 (defrecord Process [pid program started-at]
   Executable
@@ -19,15 +21,19 @@
     (not (nil? (:started-at this))))
   (progress [this]
     (if (running? this)
-      (let [elapsed (- (util/timestamp) (:started-at this))
-            duration (get-in program-catalog [(:program this) :complexity])]
-        (max (min (/ (util/ms->sec elapsed) duration) 1.0) 0.0))
+      (let [elapsed (- (util/timestamp) (:started-at this))]
+        (util/clamp (/ (util/ms->sec elapsed) (duration this))))
       0.0))
   (complete? [this]
     (and (running? this)
          (>= (util/timestamp)
-             (+ (:started-at this) (util/sec->ms
-                                    (get-in program-catalog [(:program this) :complexity])))))))
+             (+ (:started-at this) (util/sec->ms (duration this))))))
+  (complexity [this]
+    (get-in program-catalog [(:program this) :complexity]))
+  (duration [this]
+    (if-let [duration (:duration this)]
+      duration
+      (complexity this))))
 
 (deftype ProcessHandler []
   Object

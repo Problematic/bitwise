@@ -29,3 +29,7 @@
     "Merge multiple nested maps."
     [& args]
     (reduce merge-deep* nil args)))
+
+(defn clamp
+  ([v] (clamp v 0.0 1.0))
+  ([v lo hi] (max lo (min v hi))))

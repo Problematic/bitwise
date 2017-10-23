@@ -17,10 +17,17 @@
   (let [process (get-in state [:processes pid])]
     (if (process/running? process)
       state
-      (update-in state [:processes pid] process/start))))
+      (let [cpu-speed (get-in state [:architecture :cpu :speed])
+            duration (/ (process/complexity process) cpu-speed)]
+        (assoc-in state [:processes pid] (-> process
+                                             (process/start)
+                                             (assoc-in [:duration] duration)))))))
 
 (defmethod reduce-game-state :complete-process [state {:keys [pid]}]
-  (update-in state [:processes pid] process/stop))
+  (let [process (get-in state [:processes pid])]
+    (assoc-in state [:processes pid] (-> process
+                                         (process/stop)
+                                         (dissoc :duration)))))
 
 (defmethod reduce-game-state :increase-resource [state {:keys [resource amount]}]
   (update-in state [:resources resource] (comp
