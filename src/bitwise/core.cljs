@@ -29,7 +29,8 @@
                      :game-state))
 (defonce dt-mult nil)
 (defonce event-chan (chan))
-(defonce event-pub (async/pub event-chan :type))
+(defonce event-mult (async/mult event-chan))
+(defonce event-pub (async/pub (async/tap event-mult (chan)) :type))
 
 (defn process->program [process]
   ((:program process) program-catalog))
@@ -38,9 +39,8 @@
   (cond
     (fn? action) (dispatch! (action))
     (sequential? action) (doall (map dispatch! action))
-    :else (do
-            (swap! game-state reducers/reduce-state action)
-            (async/offer! event-chan action))))
+    :else (let [a (assoc action :timestamp (util/timestamp))]
+            (async/put! event-chan a))))
 
 (def process-grid-styles {:display "grid"
                           :grid-template-columns "75px 1fr 1fr"
@@ -181,6 +181,10 @@
   (let [dt-chan (chan (async/sliding-buffer 1))
         timestamp-chan (chan (async/sliding-buffer 1))]
     (set! dt-mult (async/mult dt-chan))
+    (let [event-tap (async/tap event-mult (chan 10))]
+      (go-loop [event (<! event-tap)]
+        (swap! game-state reducers/reduce-state event)
+        (recur (<! event-tap))))
     (go-loop [prev-time (<! timestamp-chan)
               curr-time (<! timestamp-chan)]
       (let [dt (ms->sec (- curr-time prev-time))]
