@@ -50,7 +50,7 @@
 (def action-button-styles {:min-width 100
                            :height 25
                            :border "1px solid gray"
-                           :display "inline-block"
+                           :display "flex"
                            :padding "3px 20px"
                            :align-items "center"
                            :justify-content "center"
@@ -89,7 +89,6 @@
                      {})}
        [:div (:pid process)]
        [:div (:name program)]
-       ; TODO: Add an "output column here"
        [:div {:style {:display "flex"}}
         [process-progress-button {:on-click #(dispatch! {:type :execute-process
                                                          :pid (:pid process)})}
@@ -149,11 +148,14 @@
                                                         :program key})
                                  :disabled (= process-slots-available 0)} "<"]
                        [program-info program]])]]]
-     [:div
+     [:div {:style {:font-family "monospace"
+                    :border "2px darkgray dashed"
+                    :padding "10px"
+                    :margin-top "20px"}}
       [:h3 {:style {:margin-bottom 8}} "Developer Tools"]
-      [:div 
+      [:div {:style {:display "flex"}}
         [action-button {:on-click #(swap! game-state assoc-in [:programs] (into #{} (keys program-catalog)))} "Grant All Programs"]
-        [action-button {:on-click #(reset! game-state (default-state))} "Reset Default State"]]
+        [action-button {:on-click #(when (js/confirm "Are you sure you want to reset your game-state to default-state? This cannot be undone.") (reset! game-state (default-state)))} "Reset Default State"]]
       [:h4 {:style {:margin-bottom 4}} "Game State:"]
       [:pre {:style {:background-color "lightgray"
                      :margin-top 0
