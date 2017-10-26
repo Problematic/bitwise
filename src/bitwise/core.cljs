@@ -43,7 +43,7 @@
             (async/put! event-chan a))))
 
 (def process-grid-styles {:display "grid"
-                          :grid-template-columns "75px 1fr 1fr"
+                          :grid-template-columns "75px 1fr 1fr 1fr 1fr"
                           :grid-template-rows "30px"
                           :align-items "center"})
 
@@ -89,6 +89,8 @@
                      {})}
        [:div (:pid process)]
        [:div (:name program)]
+       [:div (:input program)]
+       [:div (:output program)]
        [:div {:style {:display "flex"}}
         [process-progress-button {:on-click #(dispatch! {:type :execute-process
                                                          :pid (:pid process)})}
@@ -114,6 +116,8 @@
                   {})}
     [:div>b "PID"]
     [:div>b "PROGRAM"]
+    [:div>b "INPUT"]
+    [:div>b "OUTPUT"]
     [:div]]
    (for [[pid process] @processes]
      ^{:key pid} [process-info process])])

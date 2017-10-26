@@ -3,12 +3,19 @@
             [bitwise.util :as util]
             [bitwise.process :as process]))
 
+(defn pid->updater [state pid]
+  (fn [f &args]
+    (apply update-in state [:processes pid] f args)))
+
 (defmulti reduce-game-state (fn [state action] (:type action)))
 
 (defmethod reduce-game-state :fork-process [state {:keys [program]}]
-  (-> state
-      (update-in [:processes] conj [(:nextpid state) (process/Process. (:nextpid state) program nil)])
-      (update-in [:nextpid] inc)))
+  (let [pid (:nextpid state)
+        process (process/Process. pid program nil)]
+    (-> state
+        (update-in [:processes] conj [pid process])
+        #(update-in % [:processes pid] process/on-lifecycle-event process :on-fork (pid->updater % pid))
+        (update-in [:nextpid] inc))))
 
 (defmethod reduce-game-state :kill-process [state {:keys [pid]}]
   (update-in state [:processes] dissoc pid))

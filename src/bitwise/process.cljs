@@ -11,6 +11,9 @@
   (complexity [this])
   (duration [this]))
 
+(defprotocol Lifecycle
+  (on-lifecycle-event [this event update!]))
+
 (defrecord Process [pid program started-at]
   Executable
   (start [this]
@@ -33,7 +36,13 @@
   (duration [this]
     (if-let [duration (:duration this)]
       duration
-      (complexity this))))
+      (complexity this)))
+      
+  Lifecycle
+  (on-lifecycle-event [this event update!]
+    (if-let [handler (event this)]
+      (handler this update!)
+      this)))
 
 (deftype ProcessHandler []
   Object
